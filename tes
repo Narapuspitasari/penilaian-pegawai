@@ -1,0 +1,436 @@
+<?php
+include 'config.php';
+include 'fuzzy_tsukamoto.php';
+session_start();
+if (!isset($_SESSION['admin_logged_in'])) {
+    header('Location: index.php');
+    exit();
+}
+
+
+$query = "SELECT pegawai.*, penilaian.* FROM pegawai 
+          JOIN penilaian ON pegawai.id = penilaian.pegawai_id";
+$result = $conn->query($query);
+
+$totalPegawai = $conn->query("SELECT COUNT(*) as total FROM pegawai")->fetch_assoc()['total'];
+$rataNilai = $conn->query("SELECT AVG(nilai_akhir) as rata FROM penilaian")->fetch_assoc()['rata'];
+$baik = $conn->query("SELECT COUNT(*) as jml FROM penilaian WHERE kategori='Sangat Baik'")->fetch_assoc()['jml'];
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard Penilaian</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <style>
+        /* Reset dasar */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Poppins', sans-serif;
+        }
+
+        body {
+            background: linear-gradient(to right top, #c9d6ff, #e2e2e2);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        /* Kontainer utama */
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        /* Kartu statistik */
+        .card {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 20px;
+            padding: 20px;
+            color: #fff;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        /* Judul kartu */
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        /* Nilai statistik */
+        .card-value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        /* Judul halaman */
+        .dashboard-title {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 30px;
+            color: #333;
+            text-align: center;
+        }
+
+        /* Tombol */
+        .button {
+            background: rgba(255, 255, 255, 0.25);
+            color: #000;
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            text-decoration: none;
+            transition: background 0.3s ease;
+        }
+
+        .button:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        /* Tabel Penilaian */
+        .table-container {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+            overflow-x: auto;
+            margin-top: 30px;
+        }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            color: #fff;
+        }
+
+        .table th,
+        .table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .table th {
+            background-color: rgba(255, 255, 255, 0.2);
+            font-weight: bold;
+        }
+
+        .table tr:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Sidebar fixed */
+        aside {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            width: 16rem;
+            /* sama seperti class Tailwind w-64 */
+            z-index: 50;
+        }
+
+        /* Geser konten utama ke kanan agar tidak ketimpa sidebar */
+        .main-content {
+            margin-left: 16rem;
+            /* sama seperti lebar sidebar */
+        }
+    </style>
+</head>
+<?php if (isset($_SESSION['success'])): ?>
+    <div class="mx-auto w-fit px-6 py-3 my-4 rounded bg-green-100 text-green-800 font-semibold shadow">
+        <?= $_SESSION['success'];
+        unset($_SESSION['success']); ?>
+    </div>
+<?php elseif (isset($_SESSION['error'])): ?>
+    <div class="mx-auto w-fit px-6 py-3 my-4 rounded bg-red-100 text-red-700 font-semibold shadow">
+        <?= $_SESSION['error'];
+        unset($_SESSION['error']); ?>
+    </div>
+<?php endif; ?>
+
+
+<body class="bg-gray-100">
+
+    <!-- Sidebar -->
+    <aside class="bg-white shadow-lg flex flex-col">
+        <div class="p-6 text-center border-b">
+            <h2 class="text-xl font-bold text-blue-700">Penilaian Pegawai</h2>
+        </div>
+        <nav class="flex-1 px-4 py-6 space-y-2">
+            <a href="#" class="block px-4 py-2 text-gray-700 hover:bg-blue-100 rounded">Dashboard</a>
+            <a href="tambah_pegawai.php" class="block px-4 py-2 text-gray-700 hover:bg-blue-100 rounded">Input Penilaian</a>
+            <!-- <a href="#" class="block px-4 py-2 text-gray-700 hover:bg-blue-100 rounded">Riwayat Penilaian</a>
+            <a href="#" class="block px-4 py-2 text-gray-700 hover:bg-blue-100 rounded">Rekomendasi</a> -->
+            <!-- <a href="#" class="block px-4 py-2 text-gray-700 hover:bg-blue-100 rounded">Export</a> -->
+
+            <a href="#" class="block px-4 py-2 text-gray-700 hover:bg-blue-100 rounded">About</a>
+        </nav>
+       <div class="p-4 border-t">
+    <a href="logout.php" 
+       class="text-red-500 font-semibold hover:underline"
+       onclick="return confirm('Apakah Anda yakin ingin logout?')">
+       Logout
+    </a>
+</div>
+
+    </aside>
+
+    <!-- Main Content -->
+    <div class="main-content p-6 space-y-6 overflow-auto">
+        <!-- Header -->
+        <header class="flex justify-between items-center">
+            <h1 class="text-2xl font-bold text-gray-800">Selamat Datang Admin!</h1>
+            <div class="flex gap-3 items-center">
+                <!-- <input type="text" placeholder="Cari..." class="border rounded px-3 py-1 focus:outline-none">
+                <button class="w-8 h-8 rounded-full bg-gray-300"></button> -->
+            </div>
+        </header>
+
+        <!-- Summary Boxes -->
+        <section class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+    <!-- Card Total Pegawai -->
+    <div class="card-total-pegawai bg-blue-100 p-4 rounded shadow text-center">
+        <p class="text-sm text-gray-700">Total Pegawai</p>
+        <p class="text-2xl font-bold text-blue-800"><?= $totalPegawai ?></p>
+    </div>
+
+    <!-- Card Rata-rata Nilai -->
+    <div class="card-rata-nilai bg-green-100 p-4 rounded shadow text-center">
+        <p class="text-sm text-gray-700">Rata-rata Nilai</p>
+        <p class="text-2xl font-bold text-green-700"><?= number_format($rataNilai, 2) ?></p>
+    </div>
+
+    <!-- Card Sangat Baik -->
+    <div class="card-sangat-baik bg-yellow-100 p-4 rounded shadow text-center">
+        <p class="text-sm text-gray-700">Sangat Baik</p>
+        <p class="text-2xl font-bold text-yellow-700"><?= $baik ?></p>
+    </div>
+
+    <!-- Card Tanggal -->
+    <div class="card-tanggal bg-purple-100 p-4 rounded shadow text-center">
+        <p class="text-sm text-gray-700">Tanggal</p>
+        <p class="text-xl font-bold text-purple-700"><?= date('d M Y') ?></p>
+    </div>
+</section>
+
+
+        <!-- Grafik dan Card Pegawai Terbaik -->
+        <section class="flex flex-col lg:flex-row gap-4 items-stretch">
+            <!-- Chart 70% -->
+            <div class="w-full lg:w-50%] bg-white p-6 rounded shadow">
+                <h2 class="text-lg font-semibold mb-4 text-gray-700">Grafik Rata-rata Indikator</h2>
+                <canvas id="chartPerformance" height="80"></canvas>
+            </div>
+
+
+            <!-- Pegawai Terbaik 30% -->
+            <?php
+            $top = $conn->query("SELECT p.nama, pn.nilai_akhir FROM penilaian pn JOIN pegawai p ON p.id = pn.pegawai_id ORDER BY pn.nilai_akhir DESC LIMIT 1")->fetch_assoc();
+            ?>
+            <div class="w-full lg:w-[32%] bg-gradient-to-r from-green-100 to-green-50 p-4 rounded shadow border border-green-300 flex items-center justify-center">
+    <div class="text-center">
+        <!-- Gambar Piala lebih besar tapi tidak menggeser teks -->
+        <img src="cup.png" alt="Piala" class="block mx-auto max-h-25 w-auto mb-2 object-contain">
+
+        <h2 class="text-md font-semibold text-red-700 mb-1">Pegawai Terbaik Bulan Ini</h2>
+        <p class="text-lg font-bold text-yellow-900">
+            <?= $top['nama'] ?> (<?= number_format($top['nilai_akhir'], 2) ?>)
+        </p>
+    </div>
+</div>
+
+
+        </section>
+
+
+
+
+
+
+
+
+
+        <!-- Table -->
+        <section class="bg-white p-6 rounded shadow">
+            <h2 class="text-lg font-semibold mb-4 text-gray-700">Tabel Penilaian Pegawai</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full table-auto text-sm text-left">
+                    <thead class="bg-gray-100 text-gray-600">
+                        <tr>
+                            <th class="px-4 py-2">Nama</th>
+                            <th class="px-4 py-2">Teamwork</th>
+                            <th class="px-4 py-2">Disiplin</th>
+                            <th class="px-4 py-2">Tanggung Jawab</th>
+                            <th class="px-4 py-2">Produktivitas</th>
+                            <th class="px-4 py-2">Nilai Akhir</th>
+                            <th class="px-4 py-2">Progress</th>
+                            <th class="px-4 py-2">Kategori</th>
+                            <th class="px-4 py-2">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        <?php while ($row = $result->fetch_assoc()): ?>
+                            <tr class="hover:bg-gray-50">
+                                <td class="px-4 py-2"><?= htmlspecialchars($row['nama']) ?></td>
+                                <td class="px-4 py-2"><?= $row['teamwork'] ?></td>
+                                <td class="px-4 py-2"><?= $row['disiplin'] ?></td>
+                                <td class="px-4 py-2"><?= $row['tanggung_jawab'] ?></td>
+                                <td class="px-4 py-2"><?= $row['produktivitas'] ?></td>
+                                <td class="px-4 py-2 font-semibold"><?= $row['nilai_akhir'] ?></td>
+                                <td class="px-4 py-2 w-48">
+                                    <div class="relative h-4 bg-gray-200 rounded">
+                                        <div class="absolute top-0 left-0 h-4 rounded transition-all duration-300 
+      <?php
+                            $percent = min(100, max(0, round($row['nilai_akhir']))); // Amankan 0-100
+                            echo 'w-[' . $percent . '%] ';
+                            if ($percent >= 85) {
+                                echo 'bg-green-500';
+                            } elseif ($percent >= 70) {
+                                echo 'bg-yellow-400';
+                            } else {
+                                echo 'bg-red-500';
+                            }
+        ?>"
+                                            style="width: <?= $percent ?>%">
+                                        </div>
+                                        <div class="text-xs text-center absolute inset-0 font-semibold text-gray-800">
+                                            <?= number_format($row['nilai_akhir'], 2) ?>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <td class="px-4 py-2"><?= $row['kategori'] ?></td>
+                                <td class="px-4 py-2 space-x-2">
+                                    <a href="edit_nilai.php?id=<?= $row['pegawai_id'] ?>" class="text-yellow-600 hover:underline">Edit</a>
+                                    <a href="hapus.php?id=<?= $row['pegawai_id'] ?>" class="text-red-600 hover:underline" onclick="return confirm('Yakin hapus?')">Hapus</a>
+                                </td>
+                            </tr>
+                        <?php endwhile; ?>
+                    </tbody>
+                </table>
+            </div>
+
+    </div>
+
+    <!-- Tombol Export -->
+    
+
+    <div class="mt-6 flex justify-end gap-4">
+    <a href="export_excel.php" 
+       class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded shadow transition duration-200">
+        📥 Export ke Excel
+    </a>
+    <a href="export_word.php" 
+       class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded shadow transition duration-200">
+        📄 Export ke Word
+    </a>
+</div>
+
+
+    </section>
+    </div>
+
+    <!-- Chart -->
+    <script>
+        const ctx = document.getElementById('chartPerformance').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Teamwork', 'Disiplin', 'Tanggung Jawab', 'Produktivitas'],
+                datasets: [{
+                    label: 'Rata-rata',
+                    data: [
+                        <?= $conn->query("SELECT AVG(teamwork) as avg FROM penilaian")->fetch_assoc()['avg'] ?>,
+                        <?= $conn->query("SELECT AVG(disiplin) as avg FROM penilaian")->fetch_assoc()['avg'] ?>,
+                        <?= $conn->query("SELECT AVG(tanggung_jawab) as avg FROM penilaian")->fetch_assoc()['avg'] ?>,
+                        <?= $conn->query("SELECT AVG(produktivitas) as avg FROM penilaian")->fetch_assoc()['avg'] ?>
+                    ],
+                    backgroundColor: ['#60A5FA', '#34D399', '#FBBF24', '#F87171'],
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 10
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+
+    <script>
+        function renderRing(id, nilai, warna) {
+            new Chart(document.getElementById(id), {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [nilai, 100 - nilai],
+                        backgroundColor: [warna, '#E5E7EB'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    cutout: '80%',
+                    plugins: {
+                        tooltip: {
+                            enabled: false
+                        },
+                        legend: {
+                            display: false
+                        },
+                        annotation: {
+                            annotations: {
+                                label: {
+                                    type: 'label',
+                                    content: nilai + '%',
+                                    font: {
+                                        size: 16,
+                                        weight: 'bold'
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        renderRing("ringTeamwork", <?= round($conn->query("SELECT AVG(teamwork) as avg FROM penilaian")->fetch_assoc()['avg']) ?>, "#60A5FA");
+        renderRing("ringDisiplin", <?= round($conn->query("SELECT AVG(disiplin) as avg FROM penilaian")->fetch_assoc()['avg']) ?>, "#34D399");
+        renderRing("ringTanggungJawab", <?= round($conn->query("SELECT AVG(tanggung_jawab) as avg FROM penilaian")->fetch_assoc()['avg']) ?>, "#FBBF24");
+        renderRing("ringProduktivitas", <?= round($conn->query("SELECT AVG(produktivitas) as avg FROM penilaian")->fetch_assoc()['avg']) ?>, "#F87171");
+    </script>
+
+
+</body>
+
+</html>
